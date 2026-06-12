@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>139Pan Manager - 移动云盘分享链接挂载管理与生成STRM 管理器，依赖于alist运行，推荐版本3.61.0及以上</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#f0f7ff', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' },
+                        dark: { bg: '#0f172a', card: '#1e293b', border: '#334155' }
+                    }
+                }
+            }
+        }
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        [x-cloak] { display: none !important; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .terminal-scroll::-webkit-scrollbar { width: 4px; }
+        .terminal-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }
+        .toast-container { position: fixed; top: 80px; right: 16px; z-index: 60; display: flex; flex-direction: column; gap: 8px; }
+        .toast { transition: transform 0.2s ease, opacity 0.2s ease; transform: translateX(0); opacity: 1; }
+        .toast-leave { transform: translateX(100%); opacity: 0; }
+        @media (max-width: 768px) {
+            .stats-card { @apply p-2 text-center; }
+            .stats-card p { @apply text-[9px]; }
+            .stats-card .stat-value { @apply text-lg; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-dark-bg dark:text-slate-200 transition-colors antialiased font-sans pb-24" x-data="app()" x-cloak>
+
+    <!-- 顶部任务进度条 -->
+    <div x-show="activeTask.id" x-cloak class="sticky top-0 z-50 w-full bg-white/90 dark:bg-dark-card/90 backdrop-blur border-b border-brand-500/20 shadow-md">
+        <div class="mx-auto max-w-7xl px-4 py-2 flex items-center justify-between gap-4">
+            <div class="flex-1">
+                <div class="flex justify-between text-xs mb-1"><span><i class="fa-solid fa-spinner fa-spin mr-1"></i> STRM 任务进行中</span><span x-text="activeTask.progress + '%'"></span></div>
+                <div class="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden"><div class="bg-brand-500 h-full transition-all" :style="'width: ' + activeTask.progress + '%'"></div></div>
+                <p class="text-[10px] text-slate-400 mt-1 truncate" x-text="activeTask.message"></p>
+            </div>
+            <div class="flex gap-2"><button @click="openTaskLogDrawer(activeTask.id)" class="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">日志</button><button @click="stopCurrentTask" class="text-xs bg-red-500 text-white px-2 py-1 rounded">终止</button></div>
+        </div>
+    </div>
+
+    <!-- 头部 -->
+    <header class="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/80 backdrop-blur dark:border-dark-border dark:bg-dark-card/80">
+        <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center gap-3"><div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-lg"><i class="fa-solid fa-folder-tree text-lg"></i></div><div><h1 class="text-base font-bold">139Pan Manager</h1><p class="text-xs text-slate-400">云盘分享链接挂载工具箱</p></div></div>
+            <nav class="hidden md:flex space-x-1">
+                <button @click="activeTab = 'storages'" :class="activeTab === 'storages' ? 'bg-slate-100 dark:bg-slate-800 text-brand-600' : 'text-slate-500'" class="px-3 py-2 rounded-lg text-sm"><i class="fa-solid fa-hard-drive mr-2"></i>网盘连接管理</button>
+                <button @click="activeTab = 'parser'" :class="activeTab === 'parser' ? 'bg-slate-100 dark:bg-slate-800 text-brand-600' : 'text-slate-500'" class="px-3 py-2 rounded-lg text-sm"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i>批量添加链接</button>
+                <button @click="activeTab = 'tokens'" :class="activeTab === 'tokens' ? 'bg-slate-100 dark:bg-slate-800 text-brand-600' : 'text-slate-500'" class="px-3 py-2 rounded-lg text-sm"><i class="fa-solid fa-key mr-2"></i>云盘令牌管理</button>
+                <button @click="activeTab = 'settings'" :class="activeTab === 'settings' ? 'bg-slate-100 dark:bg-slate-800 text-brand-600' : 'text-slate-500'" class="px-3 py-2 rounded-lg text-sm"><i class="fa-solid fa-sliders mr-2"></i>设置中心</button>
+            </nav>
+            <div class="flex items-center gap-4">
+                <button @click="logDrawerVisible = !logDrawerVisible" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg" title="实时日志"><i class="fa-solid fa-terminal text-lg"></i></button>
+                <button @click="toggleDarkMode()" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg"><i :class="darkMode ? 'fa-solid fa-sun' : 'fa-solid fa-moon'" class="text-lg"></i></button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 移动端底部导航 -->
+    <div class="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-dark-card/90 border-t border-slate-200 dark:border-dark-border backdrop-blur-lg px-4 py-2 shadow-xl flex justify-around items-center">
+        <button @click="activeTab = 'storages'" :class="activeTab === 'storages' ? 'text-brand-600' : 'text-slate-400'" class="flex flex-col items-center gap-1 flex-1"><i class="fa-solid fa-hard-drive text-lg"></i><span class="text-[10px]">连接</span></button>
+        <button @click="activeTab = 'parser'" :class="activeTab === 'parser' ? 'text-brand-600' : 'text-slate-400'" class="flex flex-col items-center gap-1 flex-1"><i class="fa-solid fa-wand-magic-sparkles text-lg"></i><span class="text-[10px]">批量</span></button>
+        <button @click="activeTab = 'tokens'" :class="activeTab === 'tokens' ? 'text-brand-600' : 'text-slate-400'" class="flex flex-col items-center gap-1 flex-1"><i class="fa-solid fa-key text-lg"></i><span class="text-[10px]">令牌</span></button>
+        <button @click="activeTab = 'settings'" :class="activeTab === 'settings' ? 'text-brand-600' : 'text-slate-400'" class="flex flex-col items-center gap-1 flex-1"><i class="fa-solid fa-sliders text-lg"></i><span class="text-[10px]">设置</span></button>
+    </div>
+
+    <!-- 主要内容区 -->
+    <main class="mx-auto max-w-7xl px-4 py-4 md:py-8 sm:px-6 lg:px-8">
+        <!-- 网盘连接管理标签页 -->
+        <div x-show="activeTab === 'storages'" x-transition class="space-y-4">
+            <!-- 统计卡片（移动端紧凑） -->
+            <div class="flex md:grid md:grid-cols-4 gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0">
+                <div class="stats-card snap-center shrink-0 w-32 md:w-auto rounded-xl border bg-white p-3 shadow-sm dark:border-dark-border dark:bg-dark-card"><p class="text-[10px] font-medium text-slate-400">连接的分享数</p><p class="stat-value mt-1 text-xl md:text-3xl font-bold" x-text="storages.length">0</p></div>
+                <div class="stats-card snap-center shrink-0 w-32 md:w-auto rounded-xl border bg-white p-3 shadow-sm dark:border-dark-border dark:bg-dark-card"><p class="text-[10px] font-medium text-slate-400">已生成的视频 file</p><p class="stat-value mt-1 text-xl md:text-3xl font-bold text-emerald-500" x-text="totalStrmCount">0</p></div>
+                <div class="stats-card snap-center shrink-0 w-32 md:w-auto rounded-xl border bg-white p-3 shadow-sm dark:border-dark-border dark:bg-dark-card"><p class="text-[10px] font-medium text-slate-400">绑定的令牌</p><p class="stat-value mt-1 text-xl md:text-3xl font-bold text-indigo-500" x-text="tokens.length">0</p></div>
+                <div class="stats-card snap-center shrink-0 w-32 md:w-auto rounded-xl border bg-white p-3 shadow-sm dark:border-dark-border dark:bg-dark-card"><p class="text-[10px] font-medium text-slate-400">定时任务</p><p class="stat-value mt-1 text-xl md:text-3xl font-bold text-amber-500" x-text="storages.filter(s => s.auto_refresh).length">0</p></div>
+            </div>
+
+            <!-- 存储列表 -->
+            <div class="rounded-xl border bg-white shadow-sm dark:border-dark-border dark:bg-dark-card overflow-hidden">
+                <div class="p-4 border-b dark:border-dark-border flex justify-between items-center flex-wrap gap-2">
+                    <h3 class="text-sm md:text-base font-bold">已连接的移动网盘列表</h3>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <input type="text" x-model="searchKeyword" placeholder="搜索名称/路径/分享ID..." class="text-xs border rounded-lg px-2.5 py-1 bg-slate-50 dark:bg-slate-800 dark:border-dark-border w-40 md:w-48 focus:outline-none focus:border-brand-500">
+                        <button @click="refreshStorages" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-slate-100 rounded-lg dark:bg-slate-800 hover:bg-slate-200"><i class="fa-solid fa-rotate"></i> 刷新列表</button>
+                        <button @click="syncAllMappings" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-amber-500 text-white rounded-lg hover:bg-amber-600"><i class="fa-solid fa-arrows-spin"></i> 同步所有映射</button>
+                        <button @click="loadPendingTask" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-indigo-500 text-white rounded-lg hover:bg-indigo-600"><i class="fa-solid fa-arrow-rotate-left"></i> 载入未完成任务</button>
+                    </div>
+                </div>
+
+                <!-- 桌面端表格 -->
+                <div class="hidden md:block overflow-x-auto">
+                    <table class="w-full text-left text-sm"><thead class="bg-slate-50/50 dark:bg-slate-800/40 border-b dark:border-dark-border text-xs text-slate-400"><tr><th class="p-4 w-12"><input type="checkbox" @change="toggleSelectAll($el.checked)" class="rounded"></th><th>显示名称 / 挂载位置</th><th>分享ID</th><th>所属令牌</th><th>定时刷新</th><th>视频数</th><th>启用</th><th class="text-right">操作</th></tr></thead>
+                    <tbody class="divide-y dark:divide-dark-border">
+                        <template x-for="storage in filteredStorages" :key="storage.id">
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="p-4"><input type="checkbox" :value="storage.id" x-model="selectedIds" class="rounded"></td>
+                                <td class="p-4">
+                                    <div class="font-bold text-slate-700 dark:text-slate-200" x-text="storage.remark || '未命名'"></div>
+                                    <div class="flex flex-col gap-0.5 mt-0.5">
+                                        <span class="text-xs text-slate-400 font-mono" x-text="storage.mount_path"></span>
+                                        <span class="text-[10px] text-slate-500 font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">STRM路径: <span x-text="strmSaveRoot + '/' + (storage.strm_subdir || '')"></span></span>
+                                        <template x-if="!storage.is_mapped">
+                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-900">
+                                                ⚠️ 未同步映射
+                                                <button @click.stop="syncSingleMapping(storage.id)" class="text-rose-800 dark:text-rose-400 underline ml-1 hover:text-rose-600 font-extrabold">一键同步</button>
+                                            </span>
+                                        </template>
+                                    </div>
+                                </td>
+                                <td class="font-mono text-xs" x-text="storage.link_id"></td>
+                                <td><span class="inline-flex px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300" x-text="storage.token_name"></span></td>
+                                <td class="text-xs" x-text="storage.auto_refresh ? '每 '+storage.refresh_interval+' 分钟' : '未开启'"></td>
+                                <td class="font-bold text-emerald-500" x-text="getStrmStat(storage.id).count + ' 个'"></td>
+                                <td><label class="relative inline-flex items-center cursor-pointer"><input type="checkbox" x-model="storage.enabled" @change="toggleStorage(storage.id, storage.enabled)" class="sr-only peer"><div class="w-9 h-5 bg-gray-200 rounded-full peer-checked:bg-green-600 peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div></label></td>
+                                <td class="text-right space-x-1 pr-4">
+                                    <button @click="openEditModal(storage)" class="p-1.5 text-slate-400 hover:text-brand-500" title="编辑详细配置"><i class="fa-solid fa-pen-to-square"></i></button>
+                                    <button @click="checkStorage(storage.id)" class="p-1.5 text-slate-400 hover:text-emerald-500" title="连通性测试"><i class="fa-solid fa-heart-pulse"></i></button>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody></table>
+                </div>
+                <!-- 移动端卡片列表 -->
+                <div class="md:hidden divide-y dark:divide-dark-border">
+                    <template x-for="storage in filteredStorages" :key="storage.id">
+                        <div class="p-4 flex gap-3 items-start">
+                            <input type="checkbox" :value="storage.id" x-model="selectedIds" class="mt-1 rounded">
+                            <div class="flex-1 space-y-1 min-w-0">
+                                <div class="flex justify-between items-center"><span class="font-bold truncate text-slate-700 dark:text-slate-200" x-text="storage.remark || '未命名'"></span><span class="text-xs font-bold text-emerald-500 shrink-0" x-text="getStrmStat(storage.id).count + '个'"></span></div>
+                                <div class="text-[11px] text-slate-400 font-mono truncate" x-text="storage.mount_path"></div>
+                                <div class="text-[9px] text-slate-500 font-mono truncate bg-slate-100 dark:bg-slate-800 px-1 rounded">STRM: <span x-text="strmSaveRoot + '/' + (storage.strm_subdir || '')"></span></div>
+                                <template x-if="!storage.is_mapped">
+                                    <div class="text-[10px] text-rose-600 font-bold bg-rose-50 dark:bg-rose-950/40 p-1.5 rounded flex justify-between items-center border border-rose-100 dark:border-rose-900/50">
+                                        <span>⚠️ 未同步映射</span>
+                                        <button @click.stop="syncSingleMapping(storage.id)" class="bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded font-medium">同步</button>
+                                    </div>
+                                </template>
+                                <div class="flex flex-wrap gap-1 items-center pt-0.5">
+                                    <span class="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded font-mono dark:bg-slate-800">分享: <span x-text="storage.link_id"></span></span>
+                                    <span class="text-[10px] bg-indigo-50 px-1.5 py-0.5 rounded dark:bg-indigo-950/40" x-text="storage.token_name"></span>
+                                    <span x-show="storage.auto_refresh" class="text-[10px] bg-amber-50 px-1.5 py-0.5 rounded dark:bg-amber-950/40 text-amber-700">定时:<span x-text="storage.refresh_interval"></span>m</span>
+                                    <label class="flex items-center gap-1 text-[11px] ml-1"><input type="checkbox" x-model="storage.enabled" @change="toggleStorage(storage.id, storage.enabled)"> 启用</label>
+                                </div>
+                                <div class="flex justify-end gap-4 pt-1"><button @click="openEditModal(storage)" class="text-brand-500 text-xs"><i class="fa-solid fa-pen-to-square mr-1"></i>编辑</button><button @click="checkStorage(storage.id)" class="text-emerald-500 text-xs"><i class="fa-solid fa-heart-pulse mr-1"></i>测试</button></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- 批量添加链接标签页 -->
+        <div x-show="activeTab === 'parser'" x-transition class="space-y-4" x-cloak>
+            <div class="rounded-xl border bg-white p-4 md:p-6 shadow-sm dark:border-dark-border dark:bg-dark-card space-y-4">
+                <div><h3 class="text-sm font-bold">批量链接抓取箱</h3><p class="text-xs text-slate-400">粘贴带移动云盘链接的文本，自动提取名称和链接。</p></div>
+                <textarea x-model="rawParseText" rows="5" 
+    placeholder="支持以下格式：&#10;1. 完整链接：阿凡达 https://yun.139.com/w/i/xxxxxx&#10;2. 纯分享ID：2uETYymsjSxxx&#10;3. 名称:分享ID：我的电影:2uETYymsjSxxx&#10;4. 每行一个，自动提取" 
+    class="block w-full rounded-xl border-slate-200 bg-slate-50/50 p-3 font-mono text-xs dark:border-dark-border dark:bg-slate-800 focus:outline-none focus:border-brand-500"></textarea>
+                <div class="flex flex-col sm:flex-row justify-between gap-3"><select x-model="parserTokenId" class="rounded-xl border text-xs p-2.5 dark:bg-slate-800 dark:border-dark-border"><option value="">-- 选择承载令牌 --</option><template x-for="t in tokens"><option :value="t.id" x-text="t.name"></option></template></select><button @click="parseLinks" :disabled="!rawParseText.trim()" class="inline-flex justify-center items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold bg-brand-600 text-white shadow-md disabled:opacity-50">开始提取</button></div>
+            </div>
+            <div x-show="parseStats.total > 0" class="text-xs flex gap-4 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                <span>📊 总计: <span x-text="parseStats.total"></span> 行</span>
+                <span class="text-green-600">✅ 成功识别: <span x-text="parseStats.success"></span></span>
+                <span class="text-red-600">❌ 失败: <span x-text="parseStats.failed"></span></span>
+            </div>
+            <div x-show="parsedItems.length > 0" class="rounded-xl border bg-white p-4 shadow-sm dark:border-dark-border dark:bg-dark-card space-y-3">
+                <div class="flex flex-wrap gap-4"><div class="flex-1 min-w-[200px]"><label class="block text-xs font-bold text-slate-400 mb-1">AList 挂载子路径</label><div class="flex gap-2"><input type="text" x-model="alistPrefixInput" placeholder="/电视剧" class="flex-1 border rounded-lg p-2 text-xs dark:bg-slate-800"><button @click="applyAlistPrefix" class="px-3 py-2 bg-brand-600 text-white rounded-lg text-xs">应用</button><button @click="clearAlistPrefix" class="px-3 py-2 bg-gray-500 text-white rounded-lg text-xs">清空</button></div></div><div class="flex-1 min-w-[200px]"><label class="block text-xs font-bold text-slate-400 mb-1">STRM 保存子路径</label><div class="flex gap-2"><input type="text" x-model="strmPrefixInput" placeholder="/电影/欧美" class="flex-1 border rounded-lg p-2 text-xs dark:bg-slate-800"><button @click="applyStrmPrefix" class="px-3 py-2 bg-brand-600 text-white rounded-lg text-xs">应用</button><button @click="clearStrmPrefix" class="px-3 py-2 bg-gray-500 text-white rounded-lg text-xs">清空</button></div></div></div>
+                <div x-show="recentAlistPrefixes.length > 0" class="text-xs flex gap-2 items-center flex-wrap"><span class="text-slate-400">最近AList前缀:</span><template x-for="p in recentAlistPrefixes" :key="p"><button @click="alistPrefixInput = p; applyAlistPrefix()" class="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded" x-text="p"></button></template></div>
+                <div x-show="recentStrmPrefixes.length > 0" class="text-xs flex gap-2 items-center flex-wrap"><span class="text-slate-400">最近STRM前缀:</span><template x-for="p in recentStrmPrefixes" :key="p"><button @click="strmPrefixInput = p; applyStrmPrefix()" class="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded" x-text="p"></button></template></div>
+            </div>
+            
+            <div x-show="parsedItems.length > 0" class="rounded-xl border bg-white shadow-sm dark:border-dark-border dark:bg-dark-card overflow-hidden">
+                <div class="p-4 border-b flex justify-between items-center"><h4 class="text-xs font-bold">等待加入列表的队列 (<span x-text="parsedItems.length"></span>)</h4><button @click="confirmBatchImport" class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700">确认无误，全部导入</button></div>
+                <div class="divide-y dark:divide-dark-border"><template x-for="(item, idx) in parsedItems" :key="idx"><div class="p-4 space-y-3"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div><label class="block text-[10px] font-bold text-slate-400">自定义备注名称</label><input type="text" x-model="item.name" @input="updateMountPathFromName(item)" class="block w-full rounded-lg border text-xs p-2 dark:bg-slate-800"></div><div><label class="block text-[10px] font-bold text-slate-400">分享ID (可手动修正)</label><input type="text" x-model="item.link_id" class="block w-full rounded-lg border text-xs p-2 dark:bg-slate-800 font-mono"></div><div><label class="block text-[10px] font-bold text-slate-400">AList 挂载路径</label><input type="text" x-model="item.mount_path" class="block w-full rounded-lg border text-xs p-2 dark:bg-slate-800"></div></div><div><label class="block text-[10px] font-bold text-slate-400">STRM 物理保存子目录</label><input type="text" x-model="item.strm_subdir" class="block w-full rounded-lg border text-xs p-2 dark:bg-slate-800" placeholder="例如：电影/欧美/蝙蝠侠">
+                <div class="mt-1 p-2 bg-brand-50 dark:bg-slate-800/80 text-brand-700 dark:text-brand-400 text-[11px] rounded font-mono break-all border-l-2 border-brand-500">
+                    💡 绝对生成路径：<span x-text="strmSaveRoot + '/' + (item.strm_subdir || '')"></span>
+                </div></div>
+                <div class="flex justify-between items-center"><label class="flex items-center gap-1.5 text-xs"><input type="checkbox" x-model="item.auto_refresh"> 定时刷新目录</label><div class="flex items-center gap-1" x-show="item.auto_refresh"><input type="number" x-model.number="item.refresh_interval" class="w-16 rounded border text-xs p-1 dark:bg-slate-800"><span class="text-xs text-slate-400">分钟</span></div><button @click="parsedItems.splice(idx,1)" class="text-slate-300 hover:text-rose-500 text-xs"><i class="fa-solid fa-trash mr-1"></i>移除</button></div></div></template></div>
+            </div>
+        </div>
+
+        <!-- 令牌管理标签页 -->
+        <div x-show="activeTab === 'tokens'" x-transition class="space-y-4" x-cloak>
+            <div class="flex justify-between items-center"><div><h3 class="text-sm font-bold">多令牌管理</h3><p class="text-xs text-slate-400">已登录的云盘令牌已安全截断展示。</p></div><button @click="openNewTokenModal" class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand-600 text-white"><i class="fa-solid fa-plus"></i> 添加新令牌</button></div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4"><template x-for="t in tokens" :key="t.id"><div class="rounded-xl border bg-white p-4 shadow-sm dark:border-dark-border dark:bg-dark-card flex flex-col gap-3"><div class="flex items-center gap-3"><div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 dark:bg-slate-800"><i class="fa-solid fa-key text-indigo-500"></i></div><div class="min-w-0 flex-1"><h4 class="text-xs font-bold truncate" x-text="t.name"></h4><p class="text-[10px] font-mono truncate text-slate-400" x-text="t.authorization_masked || t.authorization"></p></div></div><div class="flex justify-end gap-2 border-t dark:border-dark-border pt-2 text-xs"><button @click="openEditTokenModal(t)" class="px-2 py-1 border rounded dark:border-dark-border hover:bg-slate-50 dark:hover:bg-slate-800">编辑名称</button><button @click="deleteToken(t.id)" class="px-2 py-1 text-rose-600 bg-rose-50 dark:bg-rose-950/40 rounded hover:bg-rose-100">安全下线</button></div></div></template></div>
+        </div>
+
+        <!-- 设置中心标签页 -->
+        <div x-show="activeTab === 'settings'" x-transition class="max-w-2xl mx-auto space-y-4" x-cloak>
+            <div class="rounded-xl border bg-white p-4 md:p-6 shadow-sm dark:border-dark-border dark:bg-dark-card space-y-4"><h3 class="text-xs font-bold flex items-center gap-2"><i class="fa-solid fa-server text-brand-500"></i> AList 连接设置</h3><div class="space-y-3 text-xs"><div><label class="block font-bold text-slate-400 mb-1">AList 服务地址</label><input type="text" x-model="configAList.url" placeholder="http://127.0.0.1:5240" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border"></div><div class="grid grid-cols-2 gap-3"><div><label class="block font-bold text-slate-400 mb-1">AList 账号</label><input type="text" x-model="configAList.username" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border"></div><div><label class="block font-bold text-slate-400 mb-1">AList 密码</label><input type="password" x-model="configAList.password" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border"></div></div></div><div class="flex justify-end"><button @click="saveAListConfig" class="px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-semibold hover:bg-brand-700">测试连接并保存</button></div></div>
+            <div class="rounded-xl border bg-white p-4 md:p-6 shadow-sm dark:border-dark-border dark:bg-dark-card space-y-4">
+    <h3 class="text-xs font-bold flex items-center gap-2"><i class="fa-solid fa-play text-emerald-500"></i> STRM 视频生成设置</h3>
+    <div class="space-y-3 text-xs">
+        <div>
+            <label class="block font-bold text-slate-400 mb-1">WebDAV 映射基准网址</label>
+            <input type="text" x-model="strmBaseUrlEdit" placeholder="http://你的外网IP:5240/d" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border">
+        </div>
+        <div>
+            <label class="block font-bold text-slate-400 mb-1">STRM 物理保存路径</label>
+            <input type="text" x-model="strmSaveRootEdit" placeholder="/strm" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border">
+        </div>
+        <div>
+            <label class="block font-bold text-slate-400 mb-1">默认挂载根路径</label>
+            <input type="text" x-model="configDefaultRoot" placeholder="/移动云盘分享" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border">
+        </div>
+        <!-- 新增：空文件夹清理配置 -->
+        <div class="border-t pt-3 mt-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" x-model="cleanEmptyFolders" class="rounded"> 
+                <span class="font-bold text-slate-400">任务完成后清理空文件夹</span>
+            </label>
+            <div x-show="cleanEmptyFolders" class="mt-2 ml-6">
+                <label class="block text-slate-400 mb-1">清理规则</label>
+                <select x-model="cleanRule" class="block w-full rounded-xl border p-2 dark:bg-slate-800">
+                    <option value="1">规则一：删除没有任何 .strm 文件的文件夹（即使有图片等）</option>
+                    <option value="2">规则二：仅删除完全空的文件夹</option>
+                </select>
+                <p class="text-[10px] text-slate-400 mt-1">⚠️ 规则一会删除未生成视频的整个目录树，请谨慎使用</p>
+            </div>
+        </div>
+    </div>
+    <div class="flex justify-end">
+        <button @click="saveStrmConfig" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700">保存路径策略</button>
+    </div>
+</div>
+            <div class="rounded-xl border bg-white p-4 md:p-6 shadow-sm dark:border-dark-border dark:bg-dark-card space-y-4"><h3 class="text-xs font-bold flex items-center gap-2"><i class="fa-solid fa-hard-drive text-purple-500"></i> 默认存储模板</h3><div class="space-y-3 text-xs"><div><label class="block font-bold text-slate-400 mb-1">驱动名称</label><select x-model="storageDefaults.driver" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border"><option value="139Yun">139Yun (移动云盘)</option><option value="ChinaMobile">ChinaMobile</option><option value="中国移动云盘">中国移动云盘</option></select></div><div class="flex items-center gap-3"><label class="flex items-center gap-1"><input type="checkbox" x-model="storageDefaults.proxy_range"> 启用代理 range</label><label class="flex items-center gap-1"><input type="checkbox" x-model="storageDefaults.down_proxy_sign"> 下载代理签名</label></div><div><label class="block font-bold text-slate-400 mb-1">WebDAV 策略</label><select x-model="storageDefaults.webdav_policy" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border"><option value="302_redirect">302 重定向</option><option value="native_proxy">本地代理</option><option value="use_proxy_url">使用代理 URL</option></select></div></div><div class="flex justify-end"><button @click="saveStorageDefaults" class="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-semibold hover:bg-purple-700">保存模板设置</button></div></div>
+        </div>
+    </main>
+
+    <!-- 批量操作悬浮栏 -->
+    <div x-show="selectedIds.length > 0" x-cloak class="fixed bottom-20 md:bottom-6 left-1/2 z-50 w-full max-w-2xl -translate-x-1/2 px-4"><div class="flex items-center justify-between gap-3 rounded-xl border border-brand-500/20 bg-slate-900/95 p-3 text-white shadow-xl backdrop-blur"><div class="flex items-center gap-1.5 pl-1 shrink-0"><span class="flex h-5 w-5 items-center justify-center rounded-full bg-brand-500 text-[10px] font-bold" x-text="selectedIds.length"></span><span class="text-xs">选定</span></div><div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5"><button @click="batchGenerateStrm" class="inline-flex items-center gap-1 px-2.5 py-1.5 shrink-0 rounded-lg text-xs font-bold bg-brand-600 hover:bg-brand-500"><i class="fa-solid fa-wand-magic-sparkles"></i> 生成STRM</button><button @click="openBatchWebdavModal" class="inline-flex items-center gap-1 px-2.5 py-1.5 shrink-0 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700"><i class="fa-solid fa-globe"></i> 批量改WebDAV</button><button @click="openBatchPrefixModal" class="inline-flex items-center gap-1 px-2.5 py-1.5 shrink-0 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700"><i class="fa-solid fa-folder-gear"></i> 批量换路径</button><button @click="openBatchTokenModal" class="inline-flex items-center gap-1 px-2.5 py-1.5 shrink-0 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700"><i class="fa-solid fa-arrows-spin"></i> 批量转移令牌</button><button @click="batchToggleEnable(true)" class="inline-flex items-center gap-1 px-2.5 py-1.5 shrink-0 rounded-lg text-xs font-bold bg-green-600 hover:bg-green-500"><i class="fa-solid fa-play"></i> 启用</button><button @click="batchToggleEnable(false)" class="inline-flex items-center gap-1 px-2.5 py-1.5 shrink-0 rounded-lg text-xs font-bold bg-yellow-600 hover:bg-yellow-500"><i class="fa-solid fa-stop"></i> 禁用</button><button @click="triggerBatchDelete" class="inline-flex items-center gap-1 px-2.5 py-1.5 shrink-0 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500"><i class="fa-solid fa-trash-can"></i> 删除选中</button></div></div></div>
+
+    <!-- 模态框 -->
+    <!-- 编辑挂载点 -->
+    <div x-show="editModalVisible" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak><div class="absolute inset-0 bg-black/50" @click="editModalVisible = false"></div><div class="relative bg-white dark:bg-dark-card rounded-xl shadow-xl w-full max-w-md p-5 space-y-3"><h3 class="text-lg font-bold">编辑挂载点</h3><div><label class="block text-sm font-bold mb-1">资源名称</label><input type="text" x-model="editForm.remark" class="w-full border rounded-lg p-2 dark:bg-slate-800 dark:border-dark-border focus:outline-none focus:border-brand-500"></div><div><label class="block text-sm font-bold mb-1">挂载路径</label><input type="text" x-model="editForm.mount_path" class="w-full border rounded-lg p-2 dark:bg-slate-800 dark:border-dark-border focus:outline-none focus:border-brand-500"></div><div><label class="block text-sm font-bold mb-1">STRM 物理保存子目录</label><input type="text" x-model="editForm.strm_subdir" placeholder="相对于全局STRM根目录" class="w-full border rounded-lg p-2 dark:bg-slate-800 dark:border-dark-border focus:outline-none focus:border-brand-500"><div class="mt-2 p-2 bg-brand-50 border-l-4 border-brand-500 text-brand-700 dark:bg-slate-800 dark:text-brand-400 text-xs rounded-r-lg font-mono break-all">💡 完整保存绝对路径提示：<span x-text="strmSaveRoot + '/' + (editForm.strm_subdir || '')"></span></div></div><div class="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-lg border dark:border-dark-border"><label class="flex items-center gap-2 text-sm font-semibold cursor-pointer"><input type="checkbox" x-model="editForm.auto_refresh" class="rounded"> 开启定时刷新目录</label><div class="mt-2 flex items-center gap-2 text-xs" x-show="editForm.auto_refresh"><label class="text-slate-500">刷新间隔周周期</label><input type="number" x-model.number="editForm.refresh_interval" min="5" class="w-20 border rounded p-1 dark:bg-slate-700 dark:border-dark-border"><span class="text-slate-400">分钟</span></div></div><div class="flex justify-end gap-2 pt-2"><button @click="editModalVisible = false" class="px-4 py-2 border rounded-lg text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800">取消</button><button @click="saveEdit" class="px-4 py-2 bg-brand-600 text-white rounded-lg text-xs font-semibold hover:bg-brand-700">保存配置</button></div></div></div>
+
+    <!-- 批量修改WebDAV基准URL -->
+    <div x-show="batchWebdavModalVisible" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak><div class="absolute inset-0 bg-black/50" @click="batchWebdavModalVisible = false"></div><div class="relative bg-white dark:bg-dark-card rounded-xl shadow-xl w-full max-w-md p-5 space-y-3"><h3 class="text-lg font-bold">批量修改 STRM 基准 URL</h3><input type="text" x-model="batchWebdavValue" placeholder="例如 http://192.168.31.193:5240/d" class="w-full border rounded-lg p-2 dark:bg-slate-800"><div class="flex justify-end gap-2"><button @click="batchWebdavModalVisible = false" class="px-3 py-1.5 border rounded">取消</button><button @click="saveBatchWebdav" class="px-3 py-1.5 bg-brand-600 text-white rounded">确认修改</button></div></div></div>
+    <!-- 批量修改挂载路径前缀 -->
+    <div x-show="batchPrefixModalVisible" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak><div class="absolute inset-0 bg-black/50" @click="batchPrefixModalVisible = false"></div><div class="relative bg-white dark:bg-dark-card rounded-xl shadow-xl w-full max-w-md p-5 space-y-3"><h3 class="text-lg font-bold">批量修改挂载路径前缀</h3><input type="text" x-model="batchPrefixValue" placeholder="新前缀，如 /移动云盘/备份" class="w-full border rounded-lg p-2 dark:bg-slate-800"><div class="flex justify-end gap-2"><button @click="batchPrefixModalVisible = false" class="px-3 py-1.5 border rounded">取消</button><button @click="saveBatchPrefix" class="px-3 py-1.5 bg-brand-600 text-white rounded">确认修改</button></div></div></div>
+    <!-- 批量转移令牌 -->
+    <div x-show="batchTokenModalVisible" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak><div class="absolute inset-0 bg-black/50" @click="batchTokenModalVisible = false"></div><div class="relative bg-white dark:bg-dark-card rounded-xl shadow-xl w-full max-w-md p-5 space-y-3"><h3 class="text-lg font-bold">批量转移至新令牌</h3><select x-model="batchTokenValue" class="w-full border rounded-lg p-2 dark:bg-slate-800"><option value="">-- 选择目标令牌 --</option><template x-for="t in tokens"><option :value="t.id" x-text="t.name"></option></template></select><div class="flex justify-end gap-2"><button @click="batchTokenModalVisible = false" class="px-3 py-1.5 border rounded">取消</button><button @click="saveBatchToken" class="px-3 py-1.5 bg-brand-600 text-white rounded">确认转移</button></div></div></div>
+    <!-- 令牌添加/编辑 -->
+    <div x-show="tokenModalVisible" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak><div class="absolute inset-0 bg-black/50" @click="tokenModalVisible = false"></div><div class="relative bg-white dark:bg-dark-card rounded-xl shadow-xl w-full max-w-md p-5 space-y-3"><h3 class="text-lg font-bold" x-text="tokenForm.id ? '编辑令牌名称' : '添加新令牌'"></h3><div><label class="block text-sm font-bold">令牌名称</label><input type="text" x-model="tokenForm.name" class="w-full border rounded-lg p-2 dark:bg-slate-800"></div><div x-show="!tokenForm.id"><label class="block text-sm font-bold">Authorization (Basic xxx)</label><input type="text" x-model="tokenForm.authorization" class="w-full border rounded-lg p-2 dark:bg-slate-800"></div><div class="flex justify-end gap-2"><button @click="tokenModalVisible = false" class="px-3 py-1.5 border rounded">取消</button><button @click="saveToken" class="px-3 py-1.5 bg-brand-600 text-white rounded">保存</button></div></div></div>
+    <!-- 安全删除确认 -->
+    <div x-show="safetyConfirmModalVisible" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak><div class="absolute inset-0 bg-black/80 backdrop-blur-xs" @click="safetyConfirmModalVisible = false"></div><div class="relative bg-white dark:bg-dark-card rounded-xl shadow-xl w-full max-w-md p-5 text-center space-y-3"><div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 text-rose-600"><i class="fa-solid fa-triangle-exclamation text-xl"></i></div><h3 class="text-lg font-bold text-rose-600">危险操作！</h3><p class="text-sm text-slate-500">此操作将永久删除选中的挂载点及对应的本地STRM文件，无法撤销。</p><button @click="executeBatchDelete" :disabled="safetyCountdown > 0" class="w-full bg-rose-600 text-white py-2 rounded-lg disabled:opacity-50 font-bold">确认删除 <span x-show="safetyCountdown > 0" x-text="'('+safetyCountdown+'s)'"></span></button><button @click="safetyConfirmModalVisible = false" class="w-full border rounded-lg py-2 text-xs">取消</button></div></div>
+
+    <!-- 日志抽屉 -->
+    <div x-show="logDrawerVisible" class="fixed inset-0 z-50 overflow-hidden" x-cloak><div class="absolute inset-0 bg-black/40" @click="logDrawerVisible = false"></div><div class="absolute inset-y-0 right-0 w-full max-w-xl bg-black text-slate-300 flex flex-col shadow-xl"><div class="p-3 border-b border-slate-900 bg-zinc-950 flex justify-between items-center"><span class="text-xs font-mono"><i class="fa-solid fa-terminal text-emerald-500 mr-1"></i>实时日志监控终端</span><button @click="logDrawerVisible = false" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button></div><div class="flex-1 p-3 font-mono text-[11px] overflow-y-auto space-y-1 bg-zinc-950 text-emerald-400 terminal-scroll" id="terminal-body"><template x-for="line in taskLogs" :key="line"><div class="leading-normal whitespace-pre-wrap" x-text="line"></div></template><div x-show="taskLogs.length === 0" class="text-slate-500">等待核心处理引擎输出异步进度日志...</div></div></div></div>
+
+    <div class="toast-container" x-ref="toastContainer"></div>
+
+    <script>
+        function app() {
+            return {
+                // UI 状态
+                darkMode: false,
+                activeTab: 'storages',
+                // 配置
+                configAList: { url: '', username: '', password: '' },
+                configDefaultRoot: '',
+                strmBaseUrl: '', strmSaveRoot: '', strmBaseUrlEdit: '', strmSaveRootEdit: '',
+                cleanEmptyFolders: false,
+cleanRule: 1,
+                storageDefaults: { driver: '139Yun', proxy_range: true, webdav_policy: '302_redirect', down_proxy_sign: false },
+                // 数据
+                tokens: [],
+                storages: [],
+                selectedIds: [],
+                searchKeyword: '',
+                strmStats: [],
+                // 批量解析
+                rawParseText: '',
+                parserTokenId: '',
+                parsedItems: [],
+                parseStats: { total: 0, success: 0, failed: 0 },
+                alistPrefixInput: '',
+                strmPrefixInput: '',
+                recentAlistPrefixes: JSON.parse(localStorage.getItem('recentAlistPrefixes') || '[]'),
+                recentStrmPrefixes: JSON.parse(localStorage.getItem('recentStrmPrefixes') || '[]'),
+                // 模态框
+                editModalVisible: false,
+                editForm: { id: null, remark: '', mount_path: '', strm_subdir: '', auto_refresh: false, refresh_interval: 60 },
+                batchWebdavModalVisible: false, batchWebdavValue: '',
+                batchPrefixModalVisible: false, batchPrefixValue: '',
+                batchTokenModalVisible: false, batchTokenValue: '',
+                safetyConfirmModalVisible: false, safetyCountdown: 0, safetyTimer: null,
+                tokenModalVisible: false, tokenForm: { id: null, name: '', authorization: '' },
+                // 任务相关
+                activeTask: { id: null, progress: 0, message: '' },
+                taskPollInterval: null,
+                logDrawerVisible: false, taskLogs: [], logPollInterval: null,
+
+                get totalStrmCount() {
+                    return this.strmStats.reduce((a,b) => a + (b.strm_count || 0), 0);
+                },
+                get filteredStorages() {
+                    if (!this.searchKeyword) return this.storages;
+                    const kw = this.searchKeyword.toLowerCase();
+                    return this.storages.filter(s => 
+                        (s.remark && s.remark.toLowerCase().includes(kw)) ||
+                        (s.link_id && s.link_id.includes(kw)) ||
+                        (s.mount_path && s.mount_path.includes(kw))
+                    );
+                },
+                getStrmStat(sid) {
+                    const found = this.strmStats.find(s => s.storage_id === sid);
+                    return found ? { count: found.strm_count } : { count: 0 };
+                },
+
+                async init() {
+                    if (localStorage.getItem('dark') === 'true' || (!('dark' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        this.darkMode = true;
+                        document.documentElement.classList.add('dark');
+                    }
+                    await this.loadAll();
+                    await this.loadPendingTask();
+                    setInterval(() => this.loadSystemLogs(), 10000);
+                },
+                async loadAll() {
+                    await this.loadConfigs();
+                    await this.loadTokens();
+                    await this.refreshStorages();
+                },
+                // 加载所有配置（包括新字段）
+        async loadConfigs() {
+            try {
+                let res = await fetch('/api/alist/config');
+                if (res.ok) this.configAList = await res.json() || { url: '', username: '', password: '' };
+                
+                res = await fetch('/api/strm_config');
+                if (res.ok) {
+                    const cfg = await res.json();
+                    this.strmBaseUrl = cfg.base_url || '';
+                    this.strmSaveRoot = cfg.save_root || '';
+                    this.strmBaseUrlEdit = cfg.base_url || '';
+                    this.strmSaveRootEdit = cfg.save_root || '';
+                    // 读取清理配置
+                    this.cleanEmptyFolders = cfg.clean_empty_folders === true;
+                    this.cleanRule = cfg.clean_rule || 1;
+                }
+                
+                res = await fetch('/api/default_root');
+                if (res.ok) this.configDefaultRoot = (await res.json()).path || '/移动云盘分享';
+                
+                res = await fetch('/api/storage_defaults');
+                if (res.ok) this.storageDefaults = await res.json();
+            } catch(e) { console.error(e); }
+        },
+
+                async loadTokens() {
+                    try {
+                        const res = await fetch('/api/tokens');
+                        if (res.ok) this.tokens = await res.json() || [];
+                    } catch(e) { this.tokens = []; }
+                },
+                async refreshStorages() {
+                    try {
+                        let res = await fetch('/api/storages');
+                        if (res.ok) this.storages = await res.json() || [];
+                        res = await fetch('/api/storages/strm-stats');
+                        if (res.ok) this.strmStats = await res.json() || [];
+                    } catch(e) { console.error(e); }
+                },
+                async saveAListConfig() {
+                    try {
+                        const res = await fetch('/api/alist/config', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.configAList)
+                        });
+                        if (res.ok) {
+                            this.showToast('AList配置保存成功', 'success');
+                            await this.loadTokens();
+                            await this.refreshStorages();
+                        } else this.showToast('保存失败', 'error');
+                    } catch(e) { this.showToast('网络错误', 'error'); }
+                },
+                async saveStrmConfig() {
+    try {
+        const res = await fetch('/api/strm_config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                base_url: this.strmBaseUrlEdit, 
+                save_root: this.strmSaveRootEdit,
+                clean_empty_folders: this.cleanEmptyFolders,
+                clean_rule: this.cleanRule
+            })
+        });
+        if (res.ok) {
+            await this.loadConfigs();
+            this.showToast('STRM配置已保存', 'success');
+        } else this.showToast('保存失败', 'error');
+    } catch(e) { this.showToast('网络错误', 'error'); }
+},
+                async saveStorageDefaults() {
+                    try {
+                        const res = await fetch('/api/storage_defaults', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.storageDefaults)
+                        });
+                        if (res.ok) this.showToast('默认模板已保存', 'success');
+                        else this.showToast('保存失败', 'error');
+                    } catch(e) { this.showToast('网络错误', 'error'); }
+                },
+                toggleSelectAll(checked) {
+                    this.selectedIds = checked ? this.filteredStorages.map(s => s.id) : [];
+                },
+                sanitizePath(str) { return str.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '_').substring(0, 50); },
+                updateMountPathFromName(item) {
+                    item.mount_path = this.configDefaultRoot.replace(/\/+$/, '') + '/' + this.sanitizePath(item.name);
+                },
+                async parseLinks() {
+                    try {
+                        const res = await fetch('/api/parse-links', { method: 'POST', body: this.rawParseText });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.parseStats = { total: data.total, success: data.success, failed: data.failed };
+                            this.parsedItems = data.items.map(item => ({
+                                name: item.name,
+                                link_id: item.link_id,
+                                mount_path: this.configDefaultRoot.replace(/\/+$/, '') + '/' + item.name,
+                                strm_subdir: item.name,
+                                auto_refresh: false,
+                                refresh_interval: 60
+                            }));
+                        } else this.showToast('解析失败', 'error');
+                    } catch(e) { this.showToast('解析异常', 'error'); }
+                },
+                async confirmBatchImport() {
+                    if (!this.parserTokenId) { this.showToast('请选择令牌', 'warning'); return; }
+                    const payload = {
+                        token_id: parseInt(this.parserTokenId),
+                        items: this.parsedItems.map(i => ({
+                            name: i.name,
+                            link_id: i.link_id,
+                            mount_path: i.mount_path,
+                            strm_subdir: i.strm_subdir || i.name,
+                            auto_refresh: i.auto_refresh,
+                            refresh_interval: i.auto_refresh ? i.refresh_interval : 0
+                        }))
+                    };
+                    try {
+                        const res = await fetch('/api/storages/batch-confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                        if (res.ok) {
+                            this.parsedItems = [];
+                            this.rawParseText = '';
+                            this.showToast('批量导入成功', 'success');
+                            this.refreshStorages();
+                        } else this.showToast('导入失败', 'error');
+                    } catch(e) { this.showToast('请求异常', 'error'); }
+                },
+                async batchGenerateStrm() {
+                    if (this.selectedIds.length === 0) { this.showToast('请先选择挂载点', 'warning'); return; }
+                    try {
+                        const res = await fetch('/api/strm/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storage_ids: this.selectedIds }) });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.activeTask.id = data.task_id;
+                            localStorage.setItem('pendingTaskId', data.task_id);
+                            this.startTaskPolling();
+                            this.selectedIds = [];
+                            this.showToast('STRM生成任务已启动', 'success');
+                        } else this.showToast('启动失败', 'error');
+                    } catch(e) { this.showToast('连接失败', 'error'); }
+                },
+                startTaskPolling() {
+                    if (this.taskPollInterval) clearInterval(this.taskPollInterval);
+                    this.taskPollInterval = setInterval(async () => {
+                        if (!this.activeTask.id) return;
+                        try {
+                            const res = await fetch(`/api/strm/task/${this.activeTask.id}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                this.activeTask.progress = data.progress || 0;
+                                this.activeTask.message = data.message || '';
+                                if (data.status === 'completed' || data.status === 'stopped') {
+                                    clearInterval(this.taskPollInterval);
+                                    this.activeTask.id = null;
+                                    localStorage.removeItem('pendingTaskId');
+                                    this.refreshStorages();
+                                    this.showToast('任务结束', 'success');
+                                }
+                            }
+                        } catch(e) { console.error(e); }
+                    }, 1500);
+                },
+                async stopCurrentTask() {
+                    if (!this.activeTask.id) return;
+                    await fetch(`/api/strm/task/${this.activeTask.id}/stop`, { method: 'POST' });
+                    this.showToast('已发送终止信号', 'success');
+                },
+                async loadPendingTask() {
+                    const taskId = localStorage.getItem('pendingTaskId');
+                    if (!taskId) return;
+                    try {
+                        const res = await fetch(`/api/strm/task/${taskId}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.status === 'running') {
+                                this.activeTask.id = taskId;
+                                this.activeTask.progress = data.progress || 0;
+                                this.activeTask.message = data.message || '';
+                                this.startTaskPolling();
+                            } else localStorage.removeItem('pendingTaskId');
+                        } else localStorage.removeItem('pendingTaskId');
+                    } catch(e) { localStorage.removeItem('pendingTaskId'); }
+                },
+                openTaskLogDrawer(taskId) {
+                    this.logDrawerVisible = true;
+                    this.taskLogs = [];
+                    if (this.logPollInterval) clearInterval(this.logPollInterval);
+                    this.logPollInterval = setInterval(async () => {
+                        try {
+                            const res = await fetch(`/api/strm/task/${taskId}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                this.taskLogs = data.log || [];
+                                const el = document.getElementById('terminal-body');
+                                if (el) el.scrollTop = el.scrollHeight;
+                            }
+                        } catch(e) {}
+                    }, 1500);
+                },
+                async syncSingleMapping(id) {
+                    const res = await fetch(`/api/storage/${id}/sync-mapping`, { method: 'POST' });
+                    if (res.ok) { this.showToast('同步成功', 'success'); this.refreshStorages(); }
+                    else this.showToast('同步失败', 'error');
+                },
+                async syncAllMappings() {
+                    const res = await fetch('/api/storages/sync-all-mappings', { method: 'POST' });
+                    if (res.ok) { this.showToast('全局同步成功', 'success'); this.refreshStorages(); }
+                    else this.showToast('同步失败', 'error');
+                },
+                async checkStorage(id) {
+                    const res = await fetch(`/api/storage/${id}/check`);
+                    const data = await res.json();
+                    this.showToast(data.valid ? '✅ 网盘健康' : `❌ 无效: ${data.error}`, data.valid ? 'success' : 'error');
+                },
+                async toggleStorage(id, enabled) {
+                    await fetch(`/api/storage/${id}/toggle?enabled=${enabled}`, { method: 'POST' });
+                },
+                openEditModal(storage) {
+                    this.editForm = {
+                        id: storage.id, remark: storage.remark, mount_path: storage.mount_path,
+                        strm_subdir: storage.strm_subdir || '', auto_refresh: storage.auto_refresh || false,
+                        refresh_interval: storage.refresh_interval || 60
+                    };
+                    this.editModalVisible = true;
+                },
+                async saveEdit() {
+                    try {
+                        await fetch('/api/storages/batch', {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ storage_ids: [this.editForm.id], updates: { remark: this.editForm.remark, mount_path: this.editForm.mount_path, strm_subdir: this.editForm.strm_subdir, auto_refresh: this.editForm.auto_refresh, refresh_interval: this.editForm.refresh_interval } })
+                        });
+                        this.editModalVisible = false;
+                        this.refreshStorages();
+                        this.showToast('保存成功', 'success');
+                    } catch(e) { this.showToast('保存失败', 'error'); }
+                },
+                applyAlistPrefix() {
+                    if (!this.alistPrefixInput.trim()) return;
+                    const prefix = this.alistPrefixInput.trim();
+                    this.parsedItems = this.parsedItems.map(item => ({ ...item, mount_path: prefix + '/' + (item.mount_path.split('/').pop()) }));
+                    if (!this.recentAlistPrefixes.includes(prefix)) {
+                        this.recentAlistPrefixes.unshift(prefix);
+                        if (this.recentAlistPrefixes.length > 5) this.recentAlistPrefixes.pop();
+                        localStorage.setItem('recentAlistPrefixes', JSON.stringify(this.recentAlistPrefixes));
+                    }
+                    this.showToast('已应用AList前缀', 'success');
+                },
+                clearAlistPrefix() {
+                    this.alistPrefixInput = '';
+                    this.parsedItems = this.parsedItems.map(item => ({ ...item, mount_path: this.configDefaultRoot + '/' + this.sanitizePath(item.name) }));
+                    this.showToast('已重置AList路径', 'info');
+                },
+                applyStrmPrefix() {
+                    if (!this.strmPrefixInput.trim()) return;
+                    const prefix = this.strmPrefixInput.trim();
+                    this.parsedItems = this.parsedItems.map(item => ({ ...item, strm_subdir: prefix + '/' + (item.strm_subdir.split('/').pop()) }));
+                    if (!this.recentStrmPrefixes.includes(prefix)) {
+                        this.recentStrmPrefixes.unshift(prefix);
+                        if (this.recentStrmPrefixes.length > 5) this.recentStrmPrefixes.pop();
+                        localStorage.setItem('recentStrmPrefixes', JSON.stringify(this.recentStrmPrefixes));
+                    }
+                    this.showToast('已应用STRM前缀', 'success');
+                },
+                clearStrmPrefix() {
+                    this.strmPrefixInput = '';
+                    this.parsedItems = this.parsedItems.map(item => ({ ...item, strm_subdir: item.name }));
+                    this.showToast('已重置STRM子目录', 'info');
+                },
+                openBatchWebdavModal() { this.batchWebdavValue = this.strmBaseUrl; this.batchWebdavModalVisible = true; },
+                async saveBatchWebdav() {
+                    if (!this.batchWebdavValue) return;
+                    const res = await fetch('/api/storages/batch-webdav', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storage_ids: this.selectedIds, new_base_url: this.batchWebdavValue }) });
+                    if (res.ok) {
+                        this.batchWebdavModalVisible = false;
+                        this.showToast('WebDAV基准URL已更新', 'success');
+                        this.selectedIds = [];
+                    } else this.showToast('更新失败', 'error');
+                },
+                openBatchPrefixModal() { this.batchPrefixValue = ''; this.batchPrefixModalVisible = true; },
+                async saveBatchPrefix() {
+                    if (!this.batchPrefixValue) return;
+                    const res = await fetch('/api/storages/batch-prefix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storage_ids: this.selectedIds, new_prefix: this.batchPrefixValue }) });
+                    if (res.ok) {
+                        this.batchPrefixModalVisible = false;
+                        this.refreshStorages();
+                        this.selectedIds = [];
+                        this.showToast('前缀修改成功', 'success');
+                    } else this.showToast('失败', 'error');
+                },
+                openBatchTokenModal() { this.batchTokenValue = ''; this.batchTokenModalVisible = true; },
+                async saveBatchToken() {
+                    if (!this.batchTokenValue) return;
+                    const res = await fetch('/api/storages/batch-change-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storage_ids: this.selectedIds, token_id: parseInt(this.batchTokenValue) }) });
+                    if (res.ok) {
+                        this.batchTokenModalVisible = false;
+                        this.refreshStorages();
+                        this.selectedIds = [];
+                        this.showToast('令牌转移成功', 'success');
+                    } else this.showToast('失败', 'error');
+                },
+                async batchToggleEnable(enabled) {
+                    if (this.selectedIds.length === 0) return;
+                    await fetch(`/api/storages/batch-toggle?enabled=${enabled}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.selectedIds) });
+                    this.refreshStorages();
+                    this.selectedIds = [];
+                    this.showToast(`${enabled ? '启用' : '禁用'}成功`, 'success');
+                },
+                triggerBatchDelete() {
+                    if (this.selectedIds.length === 0) return;
+                    this.safetyCountdown = 3;
+                    this.safetyConfirmModalVisible = true;
+                    if (this.safetyTimer) clearInterval(this.safetyTimer);
+                    this.safetyTimer = setInterval(() => { this.safetyCountdown--; if (this.safetyCountdown <= 0) clearInterval(this.safetyTimer); }, 1000);
+                },
+                async executeBatchDelete() {
+                    if (this.safetyCountdown > 0) return;
+                    clearInterval(this.safetyTimer);
+                    const res = await fetch('/api/storages', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.selectedIds) });
+                    if (res.ok) {
+                        this.safetyConfirmModalVisible = false;
+                        this.selectedIds = [];
+                        this.refreshStorages();
+                        this.showToast('删除成功', 'success');
+                    } else this.showToast('删除失败', 'error');
+                },
+                openNewTokenModal() { this.tokenForm = { id: null, name: '', authorization: '' }; this.tokenModalVisible = true; },
+                openEditTokenModal(t) { this.tokenForm = { id: t.id, name: t.name, authorization: '' }; this.tokenModalVisible = true; },
+                async saveToken() {
+                    const method = this.tokenForm.id ? 'PUT' : 'POST';
+                    const url = this.tokenForm.id ? `/api/tokens/${this.tokenForm.id}` : '/api/tokens';
+                    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.tokenForm) });
+                    if (res.ok) {
+                        this.tokenModalVisible = false;
+                        this.loadTokens();
+                        this.showToast('保存成功', 'success');
+                    } else this.showToast('保存失败', 'error');
+                },
+                async deleteToken(id) {
+                    if (confirm('下线令牌会导致使用它的所有视频失效，确认吗？')) {
+                        await fetch(`/api/tokens/${id}`, { method: 'DELETE' });
+                        this.loadTokens();
+                    }
+                },
+                async loadSystemLogs() {},
+                toggleDarkMode() {
+                    this.darkMode = !this.darkMode;
+                    localStorage.setItem('dark', this.darkMode);
+                    document.documentElement.classList.toggle('dark', this.darkMode);
+                },
+                showToast(msg, type) {
+                    const container = this.$refs.toastContainer;
+                    if (!container) return;
+                    const toast = document.createElement('div');
+                    toast.className = `toast bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-lg shadow-lg px-4 py-2 text-sm z-50 mb-2`;
+                    let icon = type === 'success' ? '<i class="fa-solid fa-circle-check text-green-500 mr-2"></i>' : (type === 'error' ? '<i class="fa-solid fa-circle-exclamation text-red-500 mr-2"></i>' : '<i class="fa-solid fa-circle-info text-blue-500 mr-2"></i>');
+                    toast.innerHTML = `<div class="flex items-center">${icon}<span class="dark:text-slate-200">${msg}</span></div>`;
+                    container.appendChild(toast);
+                    setTimeout(() => {
+                        toast.classList.add('toast-leave');
+                        setTimeout(() => toast.remove(), 200);
+                    }, 3000);
+                }
+            };
+        }
+    </script>
+</body>
+</html>
