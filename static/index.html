@@ -53,7 +53,7 @@
     <!-- 头部 -->
     <header class="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/80 backdrop-blur dark:border-dark-border dark:bg-dark-card/80">
         <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center gap-3"><div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-lg"><i class="fa-solid fa-folder-tree text-lg"></i></div><div><h1 class="text-base font-bold">139Pan Manager</h1><p class="text-xs text-slate-400">云盘分享链接挂载工具箱</p></div></div>
+            <div class="flex items-center gap-3"><div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-lg"><i class="fa-solid fa-folder-tree text-lg"></i></div><div><h1 class="text-base font-bold">139Pan Manager</h1><p class="text-xs text-slate-400">云盘分享链接挂载工具箱</p><p class="text-xs text-slate-400">版本 v1.0.0</p></div></div>
             <nav class="hidden md:flex space-x-1">
                 <button @click="activeTab = 'storages'" :class="activeTab === 'storages' ? 'bg-slate-100 dark:bg-slate-800 text-brand-600' : 'text-slate-500'" class="px-3 py-2 rounded-lg text-sm"><i class="fa-solid fa-hard-drive mr-2"></i>网盘连接管理</button>
                 <button @click="activeTab = 'parser'" :class="activeTab === 'parser' ? 'bg-slate-100 dark:bg-slate-800 text-brand-600' : 'text-slate-500'" class="px-3 py-2 rounded-lg text-sm"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i>批量添加链接</button>
@@ -62,7 +62,9 @@
             </nav>
             <div class="flex items-center gap-4">
                 <button @click="logDrawerVisible = !logDrawerVisible" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg" title="实时日志"><i class="fa-solid fa-terminal text-lg"></i></button>
+                <a href="https://github.com/liu6qiang123/139PanManager2strm" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-slate-600 transition-colors p-2 rounded-lg" title="GitHub 仓库"><i class="fa-brands fa-github text-lg"></i></a>
                 <button @click="toggleDarkMode()" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg"><i :class="darkMode ? 'fa-solid fa-sun' : 'fa-solid fa-moon'" class="text-lg"></i></button>
+                <span class="text-xs text-slate-400 hidden md:inline-block" x-text="'v' + version"></span>
             </div>
         </div>
     </header>
@@ -236,6 +238,61 @@
     </div>
 </div>
             <div class="rounded-xl border bg-white p-4 md:p-6 shadow-sm dark:border-dark-border dark:bg-dark-card space-y-4"><h3 class="text-xs font-bold flex items-center gap-2"><i class="fa-solid fa-hard-drive text-purple-500"></i> 默认存储模板</h3><div class="space-y-3 text-xs"><div><label class="block font-bold text-slate-400 mb-1">驱动名称</label><select x-model="storageDefaults.driver" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border"><option value="139Yun">139Yun (移动云盘)</option><option value="ChinaMobile">ChinaMobile</option><option value="中国移动云盘">中国移动云盘</option></select></div><div class="flex items-center gap-3"><label class="flex items-center gap-1"><input type="checkbox" x-model="storageDefaults.proxy_range"> 启用代理 range</label><label class="flex items-center gap-1"><input type="checkbox" x-model="storageDefaults.down_proxy_sign"> 下载代理签名</label></div><div><label class="block font-bold text-slate-400 mb-1">WebDAV 策略</label><select x-model="storageDefaults.webdav_policy" class="block w-full rounded-xl border p-2.5 dark:bg-slate-800 dark:border-dark-border"><option value="302_redirect">302 重定向</option><option value="native_proxy">本地代理</option><option value="use_proxy_url">使用代理 URL</option></select></div></div><div class="flex justify-end"><button @click="saveStorageDefaults" class="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-semibold hover:bg-purple-700">保存模板设置</button></div></div>
+            <!-- 项目介绍卡片 -->
+<div class="rounded-xl border bg-white p-4 md:p-6 shadow-sm dark:border-dark-border dark:bg-dark-card space-y-4">
+    <div class="flex items-center gap-3 border-b pb-3 dark:border-dark-border">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-lg">
+            <i class="fa-solid fa-folder-tree text-lg"></i>
+        </div>
+        <div>
+            <h3 class="text-base font-bold">139Pan Manager</h3>
+            <p class="text-xs text-slate-400">移动云盘分享链接挂载管理与 STRM 生成工具箱</p>
+        </div>
+    </div>
+
+    <div class="space-y-3 text-sm">
+        <p>本工具用于将<strong class="text-brand-600">中国移动云盘（139 云盘）分享链接</strong>挂载到 <a href="https://github.com/AlistGo/alist" target="_blank" class="text-brand-500 hover:underline">AList</a> 中，并自动为视频文件生成 <strong class="text-emerald-600">STRM 文件</strong>（Emby / Jellyfin / Plex / 飞牛影视可直接读取的快捷方式）。</p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div class="bg-slate-50 dark:bg-slate-800/40 rounded-lg p-3">
+                <div class="font-bold mb-1 flex items-center gap-1"><i class="fa-solid fa-check-circle text-emerald-500"></i> 核心功能</div>
+                <ul class="space-y-1 text-slate-600 dark:text-slate-300">
+                    <li>• 批量识别分享链接（URL / 纯ID / 名称:ID）</li>
+                    <li>• 多令牌管理，一键切换</li>
+                    <li>• 自动创建 AList 存储并定时刷新</li>
+                    <li>• 递归生成 STRM 文件，支持增量更新</li>
+                    <li>• 批量修改 WebDAV 基准 URL</li>
+                    <li>• 空文件夹智能清理（两种规则）</li>
+                </ul>
+            </div>
+            <div class="bg-slate-50 dark:bg-slate-800/40 rounded-lg p-3">
+                <div class="font-bold mb-1 flex items-center gap-1"><i class="fa-solid fa-cube text-brand-500"></i> 技术栈</div>
+                <ul class="space-y-1 text-slate-600 dark:text-slate-300">
+                    <li>• Python 3.11 + FastAPI + Uvicorn</li>
+                    <li>• SQLite3（数据持久化）</li>
+                    <li>• Alpine.js + TailwindCSS（前端）</li>
+                    <li>• APScheduler（定时任务）</li>
+                    <li>• 支持飞牛OS 原生打包（.fpk）</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="border-t dark:border-dark-border pt-3 text-xs text-slate-400 flex flex-wrap justify-between items-center">
+            <div>
+                <i class="fa-regular fa-copyright mr-1"></i> 开源协议：MIT
+            </div>
+            <div>
+                <a href="https://github.com/liu6qiang123/139PanManager2strm" target="_blank" class="hover:text-brand-500 transition">
+                    <i class="fa-brands fa-github mr-1"></i> GitHub
+                </a>
+                <span class="mx-2">|</span>
+                <a href="https://github.com/AlistGo/alist" target="_blank" class="hover:text-brand-500 transition">
+                    基于 AList v3.61+
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
         </div>
     </main>
 
